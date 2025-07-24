@@ -32,7 +32,7 @@ connectDB();
 // Middleware
 const allowedOrigins = [
   'https://symphonious-moonbeam-dc0aa2.netlify.app',
-  'https://celebrated-kashata-1a90d0.netlify.app/',
+  'https://celebrated-kashata-1a90d0.netlify.app',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',

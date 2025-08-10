@@ -6,6 +6,12 @@ const mongoose = require('mongoose');
 const path = require('path');
 const fs = require('fs');
 
+// Route imports
+const statusRoutes = require('./routes/statuses');
+const authRoutes = require('./routes/auth');
+const profileRoutes = require('./routes/profile');
+const formRoutes = require('./routes/forms');
+
 // Load environment variables
 dotenv.config();
 
@@ -18,12 +24,7 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
-// Import routes
-const statusRoutes = require('./routes/statuses');
-const authRoutes = require('./routes/auth');
-const profileRoutes = require('./routes/profile');
-const formRoutes = require('./routes/forms');
-// Add other routes as needed
+// All routes are already imported above
 
 const app = express();
 
@@ -68,7 +69,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/status', statusRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/forms', formRoutes);
+app.use('/api', formRoutes); // Forms and sub-forms routes
 // Add other route middlewares here
 
 // Error handling middleware

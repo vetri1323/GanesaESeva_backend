@@ -31,19 +31,35 @@ const userSchema = new mongoose.Schema({
   },
   resetPasswordToken: String,
   resetPasswordExpire: Date,
+  passwordChangedAt: Date,
+  avatar: {
+    type: String,
+    default: ''
+  },
   createdAt: {
     type: Date,
     default: Date.now
   }
 });
 
-// Encrypt password using bcrypt
+// Encrypt password using bcrypt and set passwordChangedAt
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) {
-    next();
-  }
+  if (!this.isModified('password') || this.isNew) return next();
+  
+  // Hash the password
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  
+  // Set passwordChangedAt to current time - 1 second to ensure token is created after
+  this.passwordChangedAt = Date.now() - 1000;
+  next();
+});
+
+// Set passwordChangedAt when the password is reset through forgot password
+userSchema.pre('save', function(next) {
+  if (!this.isModified('password') || this.isNew) return next();
+  this.passwordChangedAt = Date.now() - 1000;
+  next();
 });
 
 // Sign JWT and return
@@ -58,6 +74,19 @@ userSchema.methods.getSignedJwtToken = function() {
 // Match user entered password to hashed password in database
 userSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Check if user changed password after the token was issued
+userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
+  if (this.passwordChangedAt) {
+    const changedTimestamp = parseInt(
+      this.passwordChangedAt.getTime() / 1000,
+      10
+    );
+    return JWTTimestamp < changedTimestamp;
+  }
+  // False means NOT changed
+  return false;
 };
 
 export default mongoose.model('User', userSchema);

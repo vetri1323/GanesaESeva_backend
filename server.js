@@ -2,443 +2,254 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import Customer from './models/Customer.js';
-import statusRoutes from './routes/statuses.js';
-import authRoutes from './routes/auth.js';
-import categoryRoutes from './routes/categories.js';
-import subCategoryRoutes from './routes/subcategories.js';
-import customerRoutes from './routes/customers.js';
-import messageTemplateRoutes from './routes/messageTemplates.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+// Debug: Log start of server initialization
+console.log('Starting server initialization...');
+
+// Load environment variables
 dotenv.config();
 
+// Ensure required environment variables are set
+const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars.join(', '));
+  process.exit(1);
+}
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Initialize express
 const app = express();
 
-// MongoDB Connection
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log('MongoDB connected successfully');
-  } catch (error) {
-    console.error('MongoDB connection error:', error);
-    process.exit(1);
-  }
-};
-
-connectDB();
-
-// Middleware
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:5000',
-  'http://127.0.0.1:5000',
-  'https://celebrated-kashata-1a90d0.netlify.app',
-  'https://ganesaeseva.netlify.app',
-  'https://ganesaeseva-backend.onrender.com'
-];
-
-// CORS configuration
-const corsOptions = {
-  origin: function (origin, callback) {
+// Configure CORS
+app.use(cors({
+  origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // In development, allow all origins
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Allowing origin in development:', origin);
-      return callback(null, true);
+    const allowedOrigins = [
+      'https://ganesaeseva2-backend.onrender.com',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      
+      // Add other allowed origins here
+    ];
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy for this site does not allow access from the specified origin: ${origin}`;
+      return callback(new Error(msg), false);
     }
     
-    // In production, only allow specific origins
-    if (allowedOrigins.some(allowedOrigin => 
-      origin === allowedOrigin || 
-      origin.startsWith(allowedOrigin.replace('http://', 'https://'))
-    )) {
-      console.log('Allowing origin in production:', origin);
-      return callback(null, true);
-    }
-    
-    console.log('Blocked origin:', origin);
-    console.log('Allowed origins:', allowedOrigins);
-    const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}.`;
-    return callback(new Error(msg), false);
+    return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'x-auth-token',
-    'x-requested-with',
-    'accept',
-    'origin'
-  ],
-  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
-  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
-  preflightContinue: false,
-  maxAge: 86400 // 24 hours
-};
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept'
+  ]
+}));
 
-// Enable CORS pre-flight
-app.options('*', cors(corsOptions));
-app.use(cors(corsOptions));
-
+// Body parser
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Enhanced logging middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  const requestId = Math.random().toString(36).substr(2, 9);
+// Import routes
+try {
+  // Import route files
+  const statusRoutes = (await import('./routes/statuses.js')).default;
+  const authRoutes = (await import('./routes/auth.js')).default;
+  const customerRoutes = (await import('./routes/customers.js')).default;
+  const categoryRoutes = (await import('./routes/categories.js')).default;
+  const subcategoryRoutes = (await import('./routes/subcategories.js')).default;
+
+  // Mount routes
+  app.use('/api/statuses', statusRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/customers', customerRoutes);
+  app.use('/api/categories', categoryRoutes);
+  app.use('/api/subcategories', subcategoryRoutes);
   
-  console.log(`[${new Date().toISOString()}] [${requestId}] ${req.method} ${req.originalUrl}`);
-  console.log(`[${requestId}] Headers:`, req.headers);
-  
-  if (req.method === 'POST' || req.method === 'PUT') {
-    console.log(`[${requestId}] Request body:`, JSON.stringify(req.body, null, 2));
-  }
-  
-  const originalSend = res.send;
-  res.send = function(body) {
-    console.log(`[${requestId}] Response (${res.statusCode}):`, 
-      typeof body === 'string' ? body : JSON.stringify(body, null, 2));
-    console.log(`[${requestId}] Response time: ${Date.now() - start}ms`);
-    return originalSend.call(this, body);
-  };
-  
-  next();
-});
-
-// Routes
-app.use('/api/statuses', statusRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/subcategories', subCategoryRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/message-templates', messageTemplateRoutes);
-
-// 404 Handler
-app.use((req, res, next) => {
-  res.status(404).json({ error: 'Not Found' });
-});
-
-// Error Handler
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal Server Error' });
-});
-
-// Get all customers
-app.get('/api/customers', async (req, res) => {
-  try {
-    console.log('Fetching customers with query:', req.query);
-    const { search, status, service, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
-    
-    // Build query
-    const query = {};
-    
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { serviceNumber: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    if (status) {
-      query.status = status;
-    }
-    
-    if (service) {
-      query.serviceCategory = service;
-    }
-    
-    // Build sort
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-    
-    console.log('MongoDB Query:', JSON.stringify(query, null, 2));
-    console.log('Sort:', sort);
-    
-    const customers = await Customer.find(query)
-      .sort(sort)
-      .populate('serviceCategory', 'name url')
-      .populate('serviceSubCategory', 'name')
-      .lean(); // Convert to plain JavaScript object for better logging
-      
-    res.json(customers);
-  } catch (error) {
-    console.error('Error fetching customers:', error);
-    res.status(500).json({ error: 'Failed to fetch customers' });
-  }
-});
-
-// Get single customer by ID
-app.get('/api/customers/:id', async (req, res) => {
-  try {
-    const customer = await Customer.findById(req.params.id)
-      .populate('serviceCategory', 'name')
-      .populate('serviceSubCategory', 'name');
-      
-    if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-    
-    res.json(customer);
-  } catch (error) {
-    console.error('Error fetching customer:', error);
-    res.status(500).json({ error: 'Failed to fetch customer' });
-  }
-});
-
-// Create a new customer
-app.post('/api/customers', async (req, res) => {
-  try {
-    console.log('Received request body:', JSON.stringify(req.body, null, 2));
-    
-    // Ensure serviceSubCategory is properly formatted
-    if (!req.body.serviceSubCategory || req.body.serviceSubCategory === '') {
-      req.body.serviceSubCategory = null;
-      req.body.serviceSubCategoryName = null;
-    } else if (req.body.serviceSubCategory) {
-      // Make sure we have a valid ObjectId for serviceSubCategory
-      if (!mongoose.Types.ObjectId.isValid(req.body.serviceSubCategory)) {
-        console.error('Invalid serviceSubCategory ID format:', req.body.serviceSubCategory);
-        return res.status(400).json({ 
-          error: 'Invalid service subcategory ID format',
-          field: 'serviceSubCategory'
-        });
-      }
-    }
-    
-    // Validate required fields
-    const requiredFields = ['name', 'phone', 'address', 'serviceCategory', 'serviceCategoryName'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
-    
-    if (missingFields.length > 0) {
-      return res.status(400).json({ 
-        error: 'Missing required fields', 
-        missingFields: missingFields.map(field => `${field} is required`)
-      });
-    }
-
-    // Validate phone number format (exactly 10 digits)
-    const phoneRegex = /^\d{10}$/;
-    if (!phoneRegex.test(req.body.phone)) {
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        errors: { phone: 'Please enter a valid 10-digit phone number' }
-      });
-    }
-
-    // Convert string IDs to ObjectId
-    const serviceCategory = req.body.serviceCategory ? new mongoose.Types.ObjectId(req.body.serviceCategory) : null;
-    const serviceSubCategory = req.body.serviceSubCategory ? new mongoose.Types.ObjectId(req.body.serviceSubCategory) : null;
-
-    // Prepare customer data with all fields
-    const customerData = {
-      // Basic Information
-      name: req.body.name.trim(),
-      email: req.body.email ? req.body.email.trim() : null,
-      phone: req.body.phone.trim(),
-      dateOfBirth: req.body.dateOfBirth || null,
-      address: req.body.address.trim(),
-      city: req.body.city ? req.body.city.trim() : null,
-      state: req.body.state ? req.body.state.trim() : null,
-      zipCode: req.body.zipCode ? req.body.zipCode.trim() : null,
-      
-      // Service Information
-      serviceCategory: serviceCategory,
-      serviceCategoryName: req.body.serviceCategoryName ? req.body.serviceCategoryName.trim() : null,
-      serviceSubCategory: serviceSubCategory,
-      serviceSubCategoryName: req.body.serviceSubCategoryName ? req.body.serviceSubCategoryName.trim() : null,
-      serviceNumber: req.body.serviceNumber ? req.body.serviceNumber.trim() : null,
-      status: req.body.status || 'Active',
-      
-      // Financial Information
-      fees: Number(req.body.fees) || 0,
-      gstStatus: req.body.gstStatus || 'Not Paid',
-      gstNumber: req.body.gstNumber ? req.body.gstNumber.trim() : null,
-      
-      // Dates
-      deliveryDate: req.body.deliveryDate ? new Date(req.body.deliveryDate) : null,
-      nextRenewalDate: req.body.nextRenewalDate ? new Date(req.body.nextRenewalDate) : null,
-      deliveryStatus: req.body.deliveryStatus || 'Pending',
-      
-      // Additional Information
-      notes: req.body.notes ? req.body.notes.trim() : null
-    };
-
-    const newCustomer = new Customer(customerData);
-    const savedCustomer = await newCustomer.save();
-    
-    console.log('New customer created:', savedCustomer);
-    return res.status(201).json(savedCustomer);
-  } catch (error) {
-    console.error('Error adding customer:', error);
-    if (error.name === 'ValidationError') {
-      const validationErrors = [];
-      Object.keys(error.errors).forEach(key => {
-        validationErrors.push({
-          param: key,
-          msg: error.errors[key].message,
-          value: error.errors[key].value
-        });
-      });
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        errors: validationErrors,
-        message: 'Validation error occurred',
-        status: 400
-      });
-    }
-    if (error.code === 11000) {
-      return res.status(400).json({ error: 'Email already exists' });
-    }
-    res.status(500).json({ error: 'Failed to create customer' });
-  }
-});
-
-// Update a customer
-app.put('/api/customers/:id', async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ error: 'Invalid customer ID format' });
-    }
-
-    // Ensure serviceSubCategory is properly formatted
-    if (!req.body.serviceSubCategory || req.body.serviceSubCategory === '') {
-      req.body.serviceSubCategory = null;
-      req.body.serviceSubCategoryName = null;
-    } else if (req.body.serviceSubCategory) {
-      // Make sure we have a valid ObjectId for serviceSubCategory
-      if (!mongoose.Types.ObjectId.isValid(req.body.serviceSubCategory)) {
-        console.error('Invalid serviceSubCategory ID format:', req.body.serviceSubCategory);
-        return res.status(400).json({ 
-          error: 'Invalid service subcategory ID format',
-          field: 'serviceSubCategory'
-        });
-      }
-    }
-
-    // Prepare update data with all fields
-    const updateData = {
-      // Basic Information
-      name: req.body.name ? req.body.name.trim() : undefined,
-      email: req.body.email !== undefined ? (req.body.email ? req.body.email.trim() : null) : undefined,
-      phone: req.body.phone ? req.body.phone.trim() : undefined,
-      address: req.body.address ? req.body.address.trim() : undefined,
-      city: req.body.city !== undefined ? (req.body.city ? req.body.city.trim() : null) : undefined,
-      state: req.body.state !== undefined ? (req.body.state ? req.body.state.trim() : null) : undefined,
-      zipCode: req.body.zipCode !== undefined ? (req.body.zipCode ? req.body.zipCode.trim() : null) : undefined,
-      
-      // Service Information
-      serviceCategory: req.body.serviceCategory ? new mongoose.Types.ObjectId(req.body.serviceCategory) : undefined,
-      serviceCategoryName: req.body.serviceCategoryName ? req.body.serviceCategoryName.trim() : undefined,
-      serviceSubCategory: req.body.serviceSubCategory ? new mongoose.Types.ObjectId(req.body.serviceSubCategory) : null,
-      serviceSubCategoryName: req.body.serviceSubCategoryName !== undefined ? 
-        (req.body.serviceSubCategoryName ? req.body.serviceSubCategoryName.trim() : null) : undefined,
-      serviceNumber: req.body.serviceNumber !== undefined ? 
-        (req.body.serviceNumber ? req.body.serviceNumber.trim() : null) : undefined,
-      status: req.body.status || 'Active',
-      
-      // Financial Information
-      fees: req.body.fees !== undefined ? Number(req.body.fees) || 0 : undefined,
-      gstStatus: req.body.gstStatus || 'Not Paid',
-      gstNumber: req.body.gstNumber !== undefined ? 
-        (req.body.gstNumber ? req.body.gstNumber.trim() : null) : undefined,
-      
-      // Dates
-      dateOfBirth: req.body.dateOfBirth !== undefined ? 
-        (req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null) : undefined,
-      deliveryDate: req.body.deliveryDate !== undefined ? 
-        (req.body.deliveryDate ? new Date(req.body.deliveryDate) : null) : undefined,
-      nextRenewalDate: req.body.nextRenewalDate !== undefined ? 
-        (req.body.nextRenewalDate ? new Date(req.body.nextRenewalDate) : null) : undefined,
-      deliveryStatus: req.body.deliveryStatus || 'Pending',
-      
-      // Additional Information
-      notes: req.body.notes !== undefined ? (req.body.notes ? req.body.notes.trim() : null) : undefined,
-      
-      // Update timestamps
-      updatedAt: new Date()
-    };
-
-    // Remove undefined values
-    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
-
-    const updatedCustomer = await Customer.findByIdAndUpdate(
-      req.params.id,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedCustomer) {
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-
-    res.json(updatedCustomer);
-  } catch (error) {
-    console.error('Error updating customer:', error);
-    if (error.name === 'ValidationError') {
-      const validationErrors = [];
-      Object.keys(error.errors).forEach(key => {
-        validationErrors.push({
-          param: key,
-          msg: error.errors[key].message,
-          value: error.errors[key].value
-        });
-      });
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        errors: validationErrors,
-        message: 'Validation error occurred',
-        status: 400
-      });
-    }
-    res.status(500).json({ error: 'Failed to update customer' });
-  }
-});
-
-// Delete a customer
-app.delete('/api/customers/:id', async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ error: 'Invalid customer ID format' });
-    }
-
-    const deletedCustomer = await Customer.findByIdAndDelete(req.params.id);
-    
-    if (!deletedCustomer) {
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-    
-    res.json({ message: 'Customer deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting customer:', error);
-    res.status(500).json({ error: 'Failed to delete customer' });
-  }
-});
+  console.log('All routes imported successfully');
+} catch (err) {
+  console.error('Error importing routes:', err);
+  process.exit(1);
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
+  console.error(err.stack);
   res.status(500).json({ 
-    error: 'Internal Server Error',
-    message: err.message || 'Something went wrong on the server.'
+    success: false, 
+    error: 'Server Error' 
   });
 });
 
+// Connect to MongoDB
+const connectDB = async () => {
+  try {
+    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/turfs';
+    console.log(`🔗 Connecting to MongoDB: ${mongoURI.split('@').pop() || mongoURI}`);
+    
+    const conn = await mongoose.connect(mongoURI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4,
+    });
+
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    console.log(`📊 Database: ${conn.connection.name}`);
+    
+    // List all collections in the database
+    const collections = await conn.connection.db.listCollections().toArray();
+    console.log('📂 Collections in database:');
+    collections.forEach(collection => console.log(`- ${collection.name}`));
+    
+    return conn;
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error.message);
+    console.error('Error details:', {
+      name: error.name,
+      code: error.code,
+      codeName: error.codeName,
+    });
+    process.exit(1);
+  }
+};
+
+// Function to create a test user if it doesn't exist
+const createTestUser = async () => {
+  try {
+    const User = (await import('./models/User.js')).default;
+    
+    // Check if test user already exists
+    let user = await User.findOne({ email: 'test@example.com' });
+    
+    if (!user) {
+      // Create test user
+      user = new User({
+        name: 'Test User',
+        email: 'g@gmail.com',
+        password: 'g@gmail.com',
+        role: 'admin'
+      });
+      
+      // Hash password before saving
+      await user.save();
+      console.log('✅ Created test user (test@example.com / password123)');
+    } else {
+      console.log('ℹ️  Test user already exists');
+    }
+    
+    return user;
+  } catch (error) {
+    console.error('❌ Error creating test user:', error.message);
+    return null;
+  }
+};
+
+// Function to create a test todo
+const createTestTodo = async (userId) => {
+  try {
+    const Todo = (await import('./models/Todo.js')).default;
+    
+    // Check if we already have a test todo
+    const existingTodo = await Todo.findOne({ jobDetails: 'Test Todo - Can be deleted' });
+    
+    if (!existingTodo) {
+      const testTodo = new Todo({
+        jobDetails: 'Test Todo - Can be deleted',
+        status: 'pending',
+        createdBy: new mongoose.Types.ObjectId(), // Using a dummy user ID for testing
+      });
+      
+      await testTodo.save();
+      console.log('✅ Created test todo');
+      
+      // Verify the todo was created
+      const count = await Todo.countDocuments();
+      console.log(`📊 Total todos in database: ${count}`);
+    } else {
+      console.log('ℹ️  Test todo already exists');
+    }
+  } catch (error) {
+    console.error('❌ Error creating test todo:', error.message);
+  }
+};
+
 // Start the server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+const startServer = async () => {
+  try {
+    // Connect to database
+    await connectDB();
+    
+    // Create test user if it doesn't exist
+    await createTestUser();
+    
+    // Use a fixed port
+    const PORT = process.env.PORT || 5002;
+    
+    // Start the server
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`API Base URL: http://localhost:${PORT}/api`);
+    });
+
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (err, promise) => {
+      console.error('Unhandled Rejection at:', promise, 'reason:', err);
+      server.close(() => process.exit(1));
+    });
+
+    // Handle server errors
+    server.on('error', (error) => {
+      if (error.syscall !== 'listen') {
+        throw error;
+      }
+
+      // Handle specific listen errors with friendly messages
+      switch (error.code) {
+        case 'EACCES':
+          console.error(`Port ${PORT} requires elevated privileges`);
+          process.exit(1);
+          break;
+        case 'EADDRINUSE':
+          console.error(`Port ${PORT} is already in use`);
+          process.exit(1);
+          break;
+        default:
+          throw error;
+      }
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Start the application
+startServer();
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
 });
 
-export default app;
+// Handle process termination
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+  });
+});

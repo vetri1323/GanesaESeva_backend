@@ -1,5 +1,6 @@
 import express from 'express';
 import Customer from '../models/Customer.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
@@ -24,6 +25,37 @@ router.get('/:id', async (req, res) => {
     res.json(customer);
   } catch (error) {
     console.error('Error fetching customer:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Search customers
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    
+    if (!q) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+    
+    const searchQuery = {
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { phone: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } },
+        { 'address.line1': { $regex: q, $options: 'i' } },
+        { 'address.city': { $regex: q, $options: 'i' } },
+        { 'address.state': { $regex: q, $options: 'i' } }
+      ]
+    };
+    
+    const customers = await Customer.find(searchQuery)
+      .select('name phone email address')
+      .limit(10);
+      
+    res.json(customers);
+  } catch (error) {
+    console.error('Error searching customers:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });

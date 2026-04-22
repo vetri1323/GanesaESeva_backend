@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
-const serviceSchema = new mongoose.Schema({
-  serviceName: {
+const expenseSubCategorySchema = new mongoose.Schema({
+  name: {
     type: String,
     required: true,
     trim: true
@@ -10,9 +10,10 @@ const serviceSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  url: {
-    type: String,
-    trim: true
+  categoryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ExpenseCategory',
+    required: true
   },
   isActive: {
     type: Boolean,
@@ -28,9 +29,9 @@ const serviceSchema = new mongoose.Schema({
   }
 });
 
-serviceSchema.pre('save', function(next) {
+expenseSubCategorySchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();
 });
 
-module.exports = mongoose.model('Service', serviceSchema);
+module.exports = mongoose.model('ExpenseSubCategory', expenseSubCategorySchema);

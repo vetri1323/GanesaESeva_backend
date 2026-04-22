@@ -1,175 +1,98 @@
 const express = require('express');
 const router = express.Router();
 const Service = require('../models/Service');
-const { protect, authorize } = require('../middleware/auth');
-const { upload } = require('../utils/fileUpload');
+const auth = require('../middleware/auth');
 
-// @desc    Get all services
-// @route   GET /api/services
-// @access  Public
-router.get('/', async (req, res) => {
+// Get all services
+router.get('/', auth, async (req, res) => {
   try {
-    const services = await Service.find({ isActive: true }).sort({ createdAt: -1 });
-    res.status(200).json({
-      success: true,
-      count: services.length,
-      data: services
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    console.log('=== SERVICES API DEBUG ===');
+    console.log('Fetching all services...');
+    console.log('User authenticated:', req.user);
+    
+    // Check if the services collection exists and has data
+    console.log('Querying services collection...');
+    const services = await Service.find().sort({ createdAt: -1 });
+    console.log('Services found:', services.length);
+    
+    // Return empty array if no services exist - no default data
+    if (!services || services.length === 0) {
+      console.log('No services found, returning empty array');
+      return res.json([]);
+    }
+    
+    console.log('Returning existing services:', services.map(s => s.serviceName));
+    res.json(services);
+  } catch (error) {
+    console.error('=== SERVICES API ERROR ===');
+    console.error('Error details:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // If it's a collection doesn't exist error, return empty array
+    if (error.message && error.message.includes('Collection')) {
+      console.log('Services collection does not exist, returning empty array');
+      return res.json([]);
+    }
+    
+    console.error('Returning 500 error to client');
+    res.status(500).json({ message: error.message, error: error.stack });
   }
 });
 
-// @desc    Get single service
-// @route   GET /api/services/:id
-// @access  Public
-router.get('/:id', async (req, res) => {
+// Get service by ID
+router.get('/:id', auth, async (req, res) => {
   try {
     const service = await Service.findById(req.params.id);
-
     if (!service) {
-      return res.status(404).json({
-        success: false,
-        message: 'Service not found'
-      });
+      return res.status(404).json({ message: 'Service not found' });
     }
-
-    res.status(200).json({
-      success: true,
-      data: service
-    });
-  } catch (err) {
-    console.error(err);
-    if (err.kind === 'ObjectId') {
-      return res.status(404).json({
-        success: false,
-        message: 'Service not found'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    res.json(service);
+  } catch (error) {
+    console.error('Error fetching service by ID:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Create new service
-// @route   POST /api/services
-// @access  Private/Admin
-router.post('/', protect, authorize('admin'), async (req, res) => {
+// Create new service
+router.post('/', auth, async (req, res) => {
   try {
-    const { title, description, icon } = req.body;
-
-    // Create service
-    const service = await Service.create({
-      title,
-      description,
-      icon
-    });
-
-    res.status(201).json({
-      success: true,
-      data: service
-    });
-  } catch (err) {
-    console.error(err);
-    if (err.name === 'ValidationError') {
-      const messages = Object.values(err.errors).map(val => val.message);
-      return res.status(400).json({
-        success: false,
-        message: messages.join(', ')
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    console.log('Creating new service:', req.body);
+    const service = new Service(req.body);
+    const newService = await service.save();
+    console.log('Service created successfully');
+    res.status(201).json(newService);
+  } catch (error) {
+    console.error('Error creating service:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Update service
-// @route   PUT /api/services/:id
-// @access  Private/Admin
-router.put('/:id', protect, authorize('admin'), async (req, res) => {
+// Update service
+router.put('/:id', auth, async (req, res) => {
   try {
-    const { title, description, icon, isActive } = req.body;
-
-    let service = await Service.findById(req.params.id);
-
+    const service = await Service.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!service) {
-      return res.status(404).json({
-        success: false,
-        message: 'Service not found'
-      });
+      return res.status(404).json({ message: 'Service not found' });
     }
-
-    // Update fields
-    service.title = title || service.title;
-    service.description = description || service.description;
-    service.icon = icon || service.icon;
-    if (typeof isActive !== 'undefined') {
-      service.isActive = isActive;
-    }
-
-    await service.save();
-
-    res.status(200).json({
-      success: true,
-      data: service
-    });
-  } catch (err) {
-    console.error(err);
-    if (err.kind === 'ObjectId') {
-      return res.status(404).json({
-        success: false,
-        message: 'Service not found'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    res.json(service);
+  } catch (error) {
+    console.error('Error updating service:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Delete service
-// @route   DELETE /api/services/:id
-// @access  Private/Admin
-router.delete('/:id', protect, authorize('admin'), async (req, res) => {
+// Delete service
+router.delete('/:id', auth, async (req, res) => {
   try {
-    const service = await Service.findById(req.params.id);
-
+    const service = await Service.findByIdAndDelete(req.params.id);
     if (!service) {
-      return res.status(404).json({
-        success: false,
-        message: 'Service not found'
-      });
+      return res.status(404).json({ message: 'Service not found' });
     }
-
-    // Soft delete by setting isActive to false
-    service.isActive = false;
-    await service.save();
-
-    res.status(200).json({
-      success: true,
-      data: {}
-    });
-  } catch (err) {
-    console.error(err);
-    if (err.kind === 'ObjectId') {
-      return res.status(404).json({
-        success: false,
-        message: 'Service not found'
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    res.json({ message: 'Service deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting service:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 

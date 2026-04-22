@@ -1,228 +1,288 @@
-import express from 'express';
-import Customer from '../models/Customer.js';
-import mongoose from 'mongoose';
-
+const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'customer-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    // Accept images only
+    if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      return cb(new Error('Only image files are allowed!'), false);
+    }
+    cb(null, true);
+  }
+});
+
+// Minimal test endpoint
+router.get('/minimal', (req, res) => {
+  console.log('Minimal test endpoint called');
+  res.json({ 
+    message: 'Minimal test working',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Get all customers
 router.get('/', async (req, res) => {
   try {
+    console.log('Fetching all customers...');
+    const Customer = require('../models/Customer');
     const customers = await Customer.find().sort({ createdAt: -1 });
+    console.log(`Found ${customers.length} customers`);
     res.json(customers);
   } catch (error) {
     console.error('Error fetching customers:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// Get a single customer by ID
+// Get customer by ID
 router.get('/:id', async (req, res) => {
   try {
+    const Customer = require('../models/Customer');
     const customer = await Customer.findById(req.params.id);
     if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
+      return res.status(404).json({ message: 'Customer not found' });
     }
     res.json(customer);
   } catch (error) {
-    console.error('Error fetching customer:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// Search customers
-router.get('/search', async (req, res) => {
-  try {
-    const { q } = req.query;
-    
-    if (!q) {
-      return res.status(400).json({ error: 'Search query is required' });
-    }
-    
-    const searchQuery = {
-      $or: [
-        { name: { $regex: q, $options: 'i' } },
-        { phone: { $regex: q, $options: 'i' } },
-        { email: { $regex: q, $options: 'i' } },
-        { 'address.line1': { $regex: q, $options: 'i' } },
-        { 'address.city': { $regex: q, $options: 'i' } },
-        { 'address.state': { $regex: q, $options: 'i' } }
-      ]
-    };
-    
-    const customers = await Customer.find(searchQuery)
-      .select('name phone email address')
-      .limit(10);
-      
-    res.json(customers);
-  } catch (error) {
-    console.error('Error searching customers:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Create a new customer
+// Create new customer
 router.post('/', async (req, res) => {
   try {
-    console.log('Received customer data:', JSON.stringify(req.body, null, 2));
-    
-    // Prepare customer data
-    const customerData = { ...req.body };
-    
-    // Handle serviceCategoryUrl - trim and ensure it's undefined if empty
-    if (customerData.serviceCategoryUrl) {
-      customerData.serviceCategoryUrl = customerData.serviceCategoryUrl.trim();
-      if (customerData.serviceCategoryUrl === '') {
-        delete customerData.serviceCategoryUrl;
-      } else if (!customerData.serviceCategoryUrl.startsWith('http')) {
-        customerData.serviceCategoryUrl = `https://${customerData.serviceCategoryUrl}`;
-      }
-    }
-    
-    // Create customer with the processed data
-    const customer = new Customer(customerData);
-    
-    console.log('Customer document to save:', JSON.stringify(customer, null, 2));
-    
-    // Validate the document before saving
-    const validationError = customer.validateSync();
-    if (validationError) {
-      console.error('Validation error details:');
-      const errors = {};
-      Object.keys(validationError.errors).forEach(key => {
-        errors[key] = validationError.errors[key].message;
-        console.error(`- ${key}: ${validationError.errors[key].message}`);
-      });
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        details: errors 
-      });
-    }
-    
-    // Save the customer
-    const savedCustomer = await customer.save();
-    console.log('Customer saved successfully:', savedCustomer);
-    
-    res.status(201).json(savedCustomer);
+    const Customer = require('../models/Customer');
+    const customer = new Customer(req.body);
+    const newCustomer = await customer.save();
+    res.status(201).json(newCustomer);
   } catch (error) {
-    console.error('Error creating customer:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      keyPattern: error.keyPattern,
-      keyValue: error.keyValue,
-      errors: error.errors,
-      stack: error.stack
-    });
-    
-    // Handle duplicate key errors
     if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      return res.status(400).json({ 
-        error: 'Duplicate key error',
-        message: `${field} already exists`,
-        field
-      });
+      return res.status(400).json({ message: 'Customer ID already exists' });
     }
-    
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const errors = {};
-      Object.keys(error.errors).forEach(key => {
-        errors[key] = error.errors[key].message;
-      });
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        details: errors 
-      });
-    }
-    
-    // Generic server error
-    res.status(500).json({ 
-      error: 'Server error',
-      message: error.message || 'An unexpected error occurred'
-    });
+    res.status(400).json({ message: error.message });
   }
 });
 
-// Update a customer
+// Update customer
 router.put('/:id', async (req, res) => {
   try {
-    console.log('Updating customer with data:', JSON.stringify(req.body, null, 2));
-    
-    // Prepare update data
-    const updateData = { ...req.body };
-    
-    // Handle serviceCategoryUrl - trim and ensure it's undefined if empty
-    if (updateData.serviceCategoryUrl !== undefined) {
-      if (updateData.serviceCategoryUrl && updateData.serviceCategoryUrl.trim() !== '') {
-        updateData.serviceCategoryUrl = updateData.serviceCategoryUrl.trim();
-        // Ensure it has a protocol
-        if (!updateData.serviceCategoryUrl.startsWith('http')) {
-          updateData.serviceCategoryUrl = `https://${updateData.serviceCategoryUrl}`;
-        }
-      } else {
-        // If empty string or null, set to undefined to allow default/removal
-        updateData.serviceCategoryUrl = undefined;
-      }
-    }
-    
-    const customer = await Customer.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true, context: 'query' }
-    );
-    
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
     if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
+      return res.status(404).json({ message: 'Customer not found' });
     }
-    
-    console.log('Successfully updated customer:', customer);
-    res.json(customer);
+
+    Object.assign(customer, req.body);
+    const updatedCustomer = await customer.save();
+    res.json(updatedCustomer);
   } catch (error) {
-    console.error('Error updating customer:', error);
-    
-    // Handle duplicate key errors
     if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      return res.status(400).json({ 
-        error: 'Duplicate key error',
-        message: `${field} already exists`,
-        field
-      });
+      return res.status(400).json({ message: 'Customer ID already exists' });
     }
-    
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const errors = {};
-      Object.keys(error.errors).forEach(key => {
-        errors[key] = error.errors[key].message;
-      });
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        details: errors 
-      });
-    }
-    
-    // Generic server error
-    res.status(500).json({ 
-      error: 'Server error',
-      message: error.message || 'An unexpected error occurred'
-    });
+    res.status(400).json({ message: error.message });
   }
 });
 
-// Delete a customer
+// Delete customer
 router.delete('/:id', async (req, res) => {
   try {
-    const customer = await Customer.findByIdAndDelete(req.params.id);
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
     if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
+      return res.status(404).json({ message: 'Customer not found' });
     }
+
+    await Customer.findByIdAndDelete(req.params.id);
     res.json({ message: 'Customer deleted successfully' });
   } catch (error) {
-    console.error('Error deleting customer:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ message: error.message });
   }
 });
 
-export default router;
+// Upload customer photo
+router.post('/:id/photo', upload.single('photo'), async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No photo uploaded' });
+    }
+
+    customer.photo = req.file.filename;
+    await customer.save();
+    
+    res.json({ 
+      message: 'Photo uploaded successfully', 
+      photo: customer.photo 
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update customer photo
+router.put('/:id/photo', upload.single('photo'), async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No photo uploaded' });
+    }
+
+    customer.photo = req.file.filename;
+    await customer.save();
+    
+    res.json({ 
+      message: 'Photo updated successfully', 
+      photo: customer.photo 
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Delete customer photo
+router.delete('/:id/photo', async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    customer.photo = undefined;
+    await customer.save();
+    
+    res.json({ message: 'Photo deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Add reminder to customer
+router.post('/:id/reminders', async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    const mongoose = require('mongoose');
+    const reminderData = {
+      ...req.body,
+      _id: new mongoose.Types.ObjectId(),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    if (!customer.reminders) {
+      customer.reminders = [];
+    }
+    console.log('Adding reminder to customer:', reminderData);
+    customer.reminders.push(reminderData);
+    await customer.save();
+    console.log('Customer after save:', customer);
+    console.log('Customer reminders after save:', customer.reminders);
+    
+    res.status(201).json(reminderData);
+  } catch (error) {
+    console.error('Error adding reminder:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update customer reminder
+router.put('/:id/reminders/:reminderId', async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    const reminder = customer.reminders.id(req.params.reminderId);
+    if (!reminder) {
+      return res.status(404).json({ message: 'Reminder not found' });
+    }
+
+    Object.assign(reminder, req.body, { updatedAt: new Date() });
+    await customer.save();
+    
+    res.json(reminder);
+  } catch (error) {
+    console.error('Error updating reminder:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Delete customer reminder
+router.delete('/:id/reminders/:reminderId', async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    customer.reminders.pull(req.params.reminderId);
+    await customer.save();
+    
+    res.json({ message: 'Reminder deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting reminder:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update reminder status
+router.patch('/:id/reminders/:reminderId/status', async (req, res) => {
+  try {
+    const Customer = require('../models/Customer');
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    const reminder = customer.reminders.id(req.params.reminderId);
+    if (!reminder) {
+      return res.status(404).json({ message: 'Reminder not found' });
+    }
+
+    reminder.serviceStatus = req.body.status;
+    reminder.updatedAt = new Date();
+    await customer.save();
+    
+    res.json(reminder);
+  } catch (error) {
+    console.error('Error updating reminder status:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;

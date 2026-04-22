@@ -1,16 +1,12 @@
 const mongoose = require('mongoose');
 
-const serviceSchema = new mongoose.Schema({
-  serviceName: {
+const expenseCategorySchema = new mongoose.Schema({
+  name: {
     type: String,
     required: true,
     trim: true
   },
   description: {
-    type: String,
-    trim: true
-  },
-  url: {
     type: String,
     trim: true
   },
@@ -28,9 +24,9 @@ const serviceSchema = new mongoose.Schema({
   }
 });
 
-serviceSchema.pre('save', function(next) {
+expenseCategorySchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();
 });
 
-module.exports = mongoose.model('Service', serviceSchema);
+module.exports = mongoose.model('ExpenseCategory', expenseCategorySchema);
